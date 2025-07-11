@@ -1,0 +1,10 @@
+streamlit
+pandas
+requests
+beautifulsoup4
+lxml[html_clean]
+anthropic
+sentence-transformers
+torch
+newspaper3k
+python-dotenv
