@@ -197,7 +197,7 @@ def generate_headline_variants_with_few_shot(article_metadata, few_shot_examples
         for headline in few_shot_examples:
             few_shot_prompt_text += f"- {headline}\n"
 
-    prompt = f"""You are an expert copywriter for Yahoo News. Generate exactly 5 compelling headline variants following Yahoo's editorial standards.
+    prompt = f"""You are an expert headline writer for Yahoo News, skilled at crafting compelling headlines that maximize click-through rates while maintaining accuracy, journalistic integrity, and Yahoo's editorial standards.
 
 YAHOO EDITORIAL REQUIREMENTS:
 1. **Headline Style**: Use sentence case (capitalize only the first word and proper nouns) - NOT title case
