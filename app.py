@@ -3,6 +3,7 @@ import requests
 from lxml import etree
 import pandas as pd
 from sentence_transformers import SentenceTransformer
+import concurrent.futures
 
 from headline_generator_with_real_mab import (
     load_mab_data,
@@ -80,6 +81,39 @@ def get_urls_from_sitemap(sitemap_url):
         st.error(f"Error parsing sitemap XML: {e}")
     return urls
 
+def process_article_url(article, mab_df, corpus_embeddings, model):
+    """
+    Processes a single article URL to scrape it and generate headline variants.
+    This function is designed to be run in a thread pool.
+    """
+    url = article['url']
+    title = article['title']
+
+    # Scrape description
+    article_description, scrape_error = scrape_article_description(url)
+
+    if not article_description:
+        return {"url": url, "title": title, "variants": None, "error": f"Scraping failed: {scrape_error}"}
+
+    # Select few-shot examples
+    few_shot_examples = select_few_shot_examples(title, mab_df, corpus_embeddings, model)
+
+    # Generate variants
+    article_metadata = {
+        "original_title": title,
+        "description": article_description,
+        "category": "News",  # Assuming default
+        "url": url
+    }
+    variants = generate_headline_variants_with_few_shot(
+        article_metadata, few_shot_examples, article_description
+    )
+
+    if not variants:
+        return {"url": url, "title": title, "variants": None, "error": "AI generation failed."}
+
+    return {"url": url, "title": title, "variants": variants, "error": None}
+
 # Streamlit UI
 st.title("Headline Variant Generator")
 
@@ -104,12 +138,12 @@ st.markdown(f"""
     }}
 
     /* Target the 'Download' button directly */
-    div[data-testid="stDownloadButton"] button {{
+    div[data-testid=\"stDownloadButton\"] button {{
         background-color: rgb(126, 31, 255) !important;
         color: white !important;
         border: 1px solid rgb(126, 31, 255) !important;
     }}
-    div[data-testid="stDownloadButton"] button:hover {{
+    div[data-testid=\"stDownloadButton\"] button:hover {{
         background-color: rgb(100, 25, 200) !important;
         color: white !important;
         border: 1px solid rgb(100, 25, 200) !important;
@@ -149,55 +183,66 @@ if submit_button:
 
                     st.subheader("Generated Headlines")
                     all_results_for_csv = []
-                    progress_bar = st.progress(0)
-                    num_articles = len(articles_to_process)
+                    
+                    # Use a ThreadPoolExecutor to process articles in parallel
+                    with st.spinner(f"Processing {len(articles_to_process)} articles concurrently..."):
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                            # Prepare futures
+                            model = load_embedding_model()
+                            future_to_article = {
+                                executor.submit(process_article_url, article, mab_df, corpus_embeddings, model): article
+                                for article in articles_to_process
+                            }
 
-                    for i, article in enumerate(articles_to_process):
-                        article_metadata = {
-                            "original_title": article['title'],
-                            "description": "",
-                            "category": "News",
-                            "url": article['url']
-                        }
-                        
-                        article_description = None
-                        variants = None
+                            results = []
+                            progress_bar = st.progress(0)
+                            num_completed = 0
+                            total_articles = len(articles_to_process)
 
-                        # Scrape article description with its own spinner for clarity
-                        with st.spinner(f"Step 1/2: Scraping description for *{article['title']}*..."):
-                            article_description, scrape_error = scrape_article_description(article['url'])
+                            for future in concurrent.futures.as_completed(future_to_article):
+                                try:
+                                    result = future.result()
+                                    results.append(result)
+                                except Exception as e:
+                                    article_info = future_to_article[future]
+                                    results.append({
+                                        "url": article_info['url'],
+                                        "title": article_info['title'],
+                                        "variants": None,
+                                        "error": f"An exception occurred: {e}"
+                                    })
+                                finally:
+                                    num_completed += 1
+                                    progress_bar.progress(num_completed / total_articles)
 
-                        # Generate headlines only if scraping was successful
-                        if article_description:
-                            with st.spinner(f"Step 2/2: Generating variants for *{article['title']}*..."):
-                                model = load_embedding_model()
-                                few_shot_examples = select_few_shot_examples(
-                                    article['title'], mab_df, corpus_embeddings, model
-                                )
-                                variants = generate_headline_variants_with_few_shot(
-                                    article_metadata, few_shot_examples, article_description
-                                )
-                        else:
-                            st.error(f"Could not scrape description for *{article['title']}*. Reason: {scrape_error}")
-                        
-                        if variants:
+                    # Process and display results
+                    for result in sorted(results, key=lambda r: articles_to_process.index(next(a for a in articles_to_process if a['url'] == r['url']))):
+                        if result['variants']:
                             # Store results for CSV download
-                            result_row = {"URL": article['url'], "Original Title": article['title']}
-                            for j, variant in enumerate(variants):
+                            result_row = {"URL": result['url'], "Original Title": result['title']}
+                            for j, variant in enumerate(result['variants']):
                                 result_row[f"Variant {j+1}"] = variant
                             all_results_for_csv.append(result_row)
 
                             # Display in an expandable section
-                            with st.expander(f"**{article['title']}**"):
-                                st.markdown(f"<small><a href='{article['url']}' target='_blank' style='text-decoration: none;'>🔗 View Article</a></small>", unsafe_allow_html=True)
+                            with st.expander(f"**{result['title']}**"):
+                                st.markdown(f"<small><a href='{result['url']}' target='_blank' style='text-decoration: none;'>🔗 View Article</a></small>", unsafe_allow_html=True)
                                 st.markdown("**Generated Variants:**")
-                                for k, variant in enumerate(variants):
+                                for k, variant in enumerate(result['variants']):
                                     st.markdown(f"> {k+1}. {variant}")
-                        elif article_description: # Only show this warning if scraping succeeded but generation failed
-                            st.warning(f"Could not generate variants for: *{article['title']}*.")
-                        
-                        # Update overall progress bar
-                        progress_bar.progress((i + 1) / num_articles)
+                        else:
+                            st.warning(f"Could not process: *{result['title']}*. Reason: {result['error']}")
+
+                    # Add a download button for the CSV
+                    if all_results_for_csv:
+                        csv_df = pd.DataFrame(all_results_for_csv)
+                        csv_data = csv_df.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="Download All Headlines as CSV",
+                            data=csv_data,
+                            file_name='headline_variants.csv',
+                            mime='text/csv',
+                        )
 
                     if all_results_for_csv:
                         st.success("Headline generation complete!")
