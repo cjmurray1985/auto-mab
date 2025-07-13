@@ -239,6 +239,7 @@ Response format: Numbered list of 5 headlines only, no additional text.
         return {
             "variants": validated_variants,
             "prompt": prompt,
+            "system_prompt": system_prompt,
             "response": response.to_json(),
             "editorial_compliance": editorial_compliance
         }
