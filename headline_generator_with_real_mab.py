@@ -164,10 +164,11 @@ def generate_headline_variants_with_few_shot(article_metadata, few_shot_examples
     """
     Generates headline variants using a few-shot prompt with Anthropic Claude 3 Haiku.
     Includes the article description for context.
+    Returns a dictionary with variants, prompt, and raw response.
     """
     if not ANTHROPIC_API_KEY:
         print("ANTHROPIC_API_KEY not found. Cannot generate headlines.")
-        return []
+        return {"variants": [], "prompt": "", "response": "ANTHROPIC_API_KEY not found."}
 
     # Construct the few-shot examples part of the prompt
     few_shot_prompt_text = ""
@@ -199,31 +200,27 @@ Your response:
         client = Anthropic(api_key=ANTHROPIC_API_KEY)
         response = client.messages.create(
             model="claude-3-haiku-20240307",
-            max_tokens=400,
-            temperature=0.7,
+            max_tokens=1024,
             messages=[
                 {"role": "user", "content": prompt}
             ]
         )
-        
-        # Extract the text from the response
-        raw_text = response.content[0].text
-        
-        # Split the text into lines
-        lines = [line.strip() for line in raw_text.strip().split('\n')]
-        
-        # Filter out any conversational filler or empty lines
-        variants = [line for line in lines if line and not line.lower().startswith("here are") and not line.lower().startswith("sure, here are")]
 
-        # Remove the number prefix (e.g., "1. ") from each variant
-        cleaned_variants = [re.sub(r'^\d+\.\s*', '', variant) for variant in variants]
-        
-        # Return only the first 5 variants to be safe
-        return cleaned_variants[:5]
+        variants = []
+        if response.content and response.content[0].text:
+            raw_text = response.content[0].text
+            # Use regex to robustly find numbered list items
+            variants = re.findall(r'^\s*\d+\.\s*(.*)', raw_text, re.MULTILINE)
+
+        return {
+            "variants": variants,
+            "prompt": prompt,
+            "response": response.model_dump_json(indent=2)
+        }
 
     except Exception as e:
-        print(f"Error generating headlines with Anthropic: {e}")
-        return []
+        print(f"Error calling Anthropic API: {e}")
+        return {"variants": [], "prompt": prompt, "response": str(e)}
 
 def main():
     # Load MAB data for few-shot learning

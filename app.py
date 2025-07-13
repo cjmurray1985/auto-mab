@@ -105,14 +105,18 @@ def process_article_url(article, mab_df, corpus_embeddings, model):
         "category": "News",  # Assuming default
         "url": url
     }
-    variants = generate_headline_variants_with_few_shot(
+    generation_result = generate_headline_variants_with_few_shot(
         article_metadata, few_shot_examples, article_description
     )
 
-    if not variants:
-        return {"url": url, "title": title, "variants": None, "error": "AI generation failed."}
+    variants = generation_result.get("variants")
+    prompt = generation_result.get("prompt")
+    raw_response = generation_result.get("response")
 
-    return {"url": url, "title": title, "variants": variants, "error": None}
+    if not variants:
+        return {"url": url, "title": title, "variants": None, "error": "AI generation failed.", "prompt": prompt, "response": raw_response}
+
+    return {"url": url, "title": title, "variants": variants, "error": None, "prompt": prompt, "response": raw_response}
 
 # Streamlit UI
 st.title("Headline Variant Generator")
@@ -230,6 +234,13 @@ if submit_button:
                                 st.markdown("**Generated Variants:**")
                                 for k, variant in enumerate(result['variants']):
                                     st.markdown(f"> {k+1}. {variant}")
+
+                                # Add a nested expander for the prompt and response
+                                with st.expander("View Prompt & Response"):
+                                    st.markdown("**Prompt sent to AI:**")
+                                    st.code(result.get('prompt', 'Prompt not available.'), language='text')
+                                    st.markdown("**Raw response from AI:**")
+                                    st.json(result.get('response', 'Response not available.'))
                         else:
                             st.warning(f"Could not process: *{result['title']}*. Reason: {result['error']}")
 
