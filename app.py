@@ -249,8 +249,15 @@ if submit_button:
                             with st.expander(f"**{result['title']}**"):
                                 st.markdown(f"<small><a href='{result['url']}' target='_blank' style='text-decoration: none;'>🔗 View Article</a></small>", unsafe_allow_html=True)
                                 st.markdown("**Generated Variants:**")
-                                for k, variant in enumerate(result['variants']):
-                                    st.markdown(f"> {k+1}. {variant}")
+                                for variant_data in result['variants']:
+                                    headline = variant_data['headline']
+                                    is_valid = variant_data['is_valid']
+                                    reason = variant_data['reason']
+
+                                    if is_valid:
+                                        st.markdown(f"- ✅ `{headline}`")
+                                    else:
+                                        st.markdown(f"- ❌ `{headline}` - **Reason:** {reason}")
 
                                 # Display editorial compliance information
                                 if 'editorial_compliance' in result and result['editorial_compliance']:

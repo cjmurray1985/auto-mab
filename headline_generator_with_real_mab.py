@@ -148,39 +148,31 @@ def scrape_article_description(url):
         return None, f"Scraping with Newspaper3k failed: {e}"
 
 def validate_headline_quality(headlines):
-    """Validate headlines against Yahoo editorial standards"""
-    validated_headlines = []
-    
-    for headline in headlines:
-        # Check length (prefer under 70 chars, hard limit 80)
-        if len(headline) > 80:
-            continue
-            
-        # Check for sentence case (first word and proper nouns only)
-        words = headline.split()
-        if len(words) > 1:
-            properly_cased = True
-            for i, word in enumerate(words[1:], 1):
-                if word.isupper() and len(word) > 1:  # Avoid ALL CAPS
-                    properly_cased = False
-                    break
-            if not properly_cased:
-                continue
+    validation_results = []
+    for h in headlines:
+        reasons = []
+        # Length check
+        if len(h) > 70:
+            reasons.append(f"Exceeds 70 characters (is {len(h)})")
+
+        # Sentence case check
+        words = h.split()
+        # Ensure the first word is capitalized and no other word (that isn't a proper noun, which is hard to check) is fully capitalized.
+        if not h[0].isupper():
+            reasons.append("Does not start with a capital letter.")
         
-        # Check for clickbait patterns
-        clickbait_phrases = [
-            "you won't believe",
-            "shocking truth",
-            "this will blow your mind",
-            "wait until you see",
-            "the reason why will surprise you"
-        ]
-        if any(phrase.lower() in headline.lower() for phrase in clickbait_phrases):
-            continue
+        # A simple check for excessive capitalization (e.g., ALL CAPS words)
+        for word in words[1:]:
+            if word.isupper() and len(word) > 1: # Ignore single-letter caps like 'A'
+                reasons.append(f"Contains improperly capitalized word: '{word}'")
+                break # Only report the first instance
+
+        if not reasons:
+            validation_results.append({"headline": h, "is_valid": True, "reason": ""})
+        else:
+            validation_results.append({"headline": h, "is_valid": False, "reason": ", ".join(reasons)})
             
-        validated_headlines.append(headline)
-    
-    return validated_headlines
+    return validation_results
 
 def generate_headline_variants_with_few_shot(article_metadata, few_shot_examples, article_description=""):
     """
@@ -248,10 +240,8 @@ Response format: Numbered list of 5 headlines only, no additional text.
                 raw_text = response.content[0].text
                 variants = re.findall(r'^\s*\d+\.\s*(.*)', raw_text, re.MULTILINE)
 
-            if variants:
-                validated_variants = validate_headline_quality(variants)
-            else:
-                validated_variants = []
+            # The validation function now returns a list of dicts with validation status
+            validated_variants = validate_headline_quality(variants)
 
             editorial_compliance = {
                 "style_guide_applied": True,
