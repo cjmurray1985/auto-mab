@@ -10,6 +10,7 @@ This project is a web-based tool designed to help content editors and marketers 
 - **AI-Powered Generation**: Leverages the Anthropic Claude 3 Haiku model to generate five diverse headline variants grounded in the article's actual content.
 - **Interactive UI**: Built with Streamlit, the app provides a user-friendly interface to input sitemaps, monitor progress, and review generated headlines.
 - **Data-Driven**: Uses a CSV file of historical headline performance data (`Example data  Sheet1.csv`) to inform its example selection process.
+- **High-Performance Concurrent Processing**: Processes multiple articles in parallel using a `ThreadPoolExecutor` to deliver headline variants quickly, even for large sitemaps.
 
 ## Tech Stack
 
@@ -74,7 +75,8 @@ Your web browser should automatically open with the application running. The fir
 1.  **Sitemap Input**: The user provides a URL to a news sitemap.
 2.  **Parsing**: The app fetches and parses the sitemap, handling nested sitemap indexes, to extract a list of all article URLs.
 3.  **Data Loading & Embedding**: The historical MAB data from `Example data  Sheet1.csv` is loaded into a pandas DataFrame. The `sentence-transformers` model then converts every headline in this dataset into a numerical vector (embedding). This process is cached for efficiency.
-4.  **Headline Generation Loop (for each article)**:
+4.  **Concurrent Headline Generation**:
+    - To ensure high performance, the application processes up to 10 articles at a time in parallel. For each article, the following steps occur concurrently:
     - **Scraping**: The application scrapes the article's title and description using `Newspaper3k`.
     - **Few-Shot Selection**: It finds the most semantically similar headlines from the historical data using cosine similarity against the scraped title.
     - **Prompting**: It constructs a detailed prompt for the Anthropic Claude 3 Haiku model, including the scraped title, description, and the best-performing similar headlines as few-shot examples.
