@@ -273,7 +273,8 @@ Response format: Numbered list of 5 headlines only, no additional text.
                 time.sleep(2)  # Wait for 2 seconds before retrying
             else:
                 print("All retry attempts failed.")
-                return {"variants": [], "prompt": prompt, "response": str(e), "error": f"API Error: {str(e)}"}
+                error_trace = traceback.format_exc()
+                return {"variants": [], "prompt": prompt, "response": str(e), "error": f"API Error after multiple retries. See details below.\n\n{error_trace}"}
 
 
 def main():

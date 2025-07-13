@@ -270,8 +270,10 @@ if submit_button:
                                     st.json(result.get('response', 'Response not available.'))
                         else:
                             with st.expander(f"❌ **Error processing:** {result['title']}", expanded=True):
-                                st.error(f"**Reason:** {result.get('error', 'An unknown error occurred.')}")
-                                st.markdown("**Prompt that may have caused the error:**")
+                                st.error("An unrecoverable error occurred after multiple retries. See the full error log below.")
+                                st.markdown("**Full Error Log:**")
+                                st.code(result.get('error', 'No error log available.'), language='log')
+                                st.markdown("**Prompt that caused the error:**")
                                 st.code(result.get('prompt', 'Prompt not available.'), language='text')
 
                     # Add a download button for the CSV
