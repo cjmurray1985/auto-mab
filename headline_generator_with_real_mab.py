@@ -231,43 +231,50 @@ Article Description: {article_description}
 Response format: Numbered list of 5 headlines only, no additional text.
 """
 
-    try:
-        client = Anthropic(api_key=ANTHROPIC_API_KEY)
-        response = client.messages.create(
-            model="claude-3-haiku-20240307",
-            max_tokens=1024,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            client = Anthropic(api_key=ANTHROPIC_API_KEY)
+            response = client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=1024,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ]
+            )
 
-        variants = []
-        if response.content and response.content[0].text:
-            raw_text = response.content[0].text
-            variants = re.findall(r'^\s*\d+\.\s*(.*)', raw_text, re.MULTILINE)
+            variants = []
+            if response.content and response.content[0].text:
+                raw_text = response.content[0].text
+                variants = re.findall(r'^\s*\d+\.\s*(.*)', raw_text, re.MULTILINE)
 
-        if variants:
-            validated_variants = validate_headline_quality(variants)
-        else:
-            validated_variants = []
+            if variants:
+                validated_variants = validate_headline_quality(variants)
+            else:
+                validated_variants = []
 
-        editorial_compliance = {
-            "style_guide_applied": True,
-            "sentence_case_enforced": True,
-            "length_optimized": True,
-            "fact_grounded": True
-        }
+            editorial_compliance = {
+                "style_guide_applied": True,
+                "sentence_case_enforced": True,
+                "length_optimized": True,
+                "fact_grounded": True
+            }
 
-        return {
-            "variants": validated_variants,
-            "prompt": prompt,
-            "response": response.to_json(),
-            "editorial_compliance": editorial_compliance
-        }
+            return {
+                "variants": validated_variants,
+                "prompt": prompt,
+                "response": response.to_json(),
+                "editorial_compliance": editorial_compliance
+            }
 
-    except Exception as e:
-        print(f"Error calling Anthropic API: {e}")
-        return {"variants": [], "prompt": prompt, "response": str(e)}
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)  # Wait for 2 seconds before retrying
+            else:
+                print("All retry attempts failed.")
+                return {"variants": [], "prompt": prompt, "response": str(e)}
+
 
 def main():
     # Load MAB data for few-shot learning
