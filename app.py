@@ -115,7 +115,8 @@ def process_article_url(article, mab_df, corpus_embeddings, model):
     editorial_compliance = generation_result.get("editorial_compliance")
 
     if not variants:
-        return {"url": url, "title": title, "variants": None, "error": "AI generation failed.", "prompt": prompt, "response": raw_response, "editorial_compliance": editorial_compliance}
+        error_message = generation_result.get("error", "AI generation failed.")
+        return {"url": url, "title": title, "variants": None, "error": error_message, "prompt": prompt, "response": raw_response, "editorial_compliance": editorial_compliance}
 
     return {"url": url, "title": title, "variants": variants, "error": None, "prompt": prompt, "response": raw_response, "editorial_compliance": editorial_compliance}
 
@@ -253,7 +254,11 @@ if submit_button:
                                     st.markdown("**Raw response from AI:**")
                                     st.json(result.get('response', 'Response not available.'))
                         else:
-                            st.warning(f"Could not process: *{result['title']}*. Reason: {result['error']}")
+                            st.error(f"Could not process: {result['title']}")
+                            with st.expander("View Error Details"):
+                                st.error(result.get('error', 'No specific error message available.'))
+                                st.markdown("**Prompt that may have caused the error:**")
+                                st.code(result.get('prompt', 'Prompt not available.'), language='text')
 
                     # Add a download button for the CSV
                     if all_results_for_csv:
