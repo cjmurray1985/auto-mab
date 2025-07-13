@@ -112,11 +112,12 @@ def process_article_url(article, mab_df, corpus_embeddings, model):
     variants = generation_result.get("variants")
     prompt = generation_result.get("prompt")
     raw_response = generation_result.get("response")
+    editorial_compliance = generation_result.get("editorial_compliance")
 
     if not variants:
-        return {"url": url, "title": title, "variants": None, "error": "AI generation failed.", "prompt": prompt, "response": raw_response}
+        return {"url": url, "title": title, "variants": None, "error": "AI generation failed.", "prompt": prompt, "response": raw_response, "editorial_compliance": editorial_compliance}
 
-    return {"url": url, "title": title, "variants": variants, "error": None, "prompt": prompt, "response": raw_response}
+    return {"url": url, "title": title, "variants": variants, "error": None, "prompt": prompt, "response": raw_response, "editorial_compliance": editorial_compliance}
 
 # Streamlit UI
 st.title("Headline Variant Generator")
