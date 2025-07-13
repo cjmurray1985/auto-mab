@@ -47,7 +47,7 @@ def load_mab_data(csv_path=MAB_DATA_CSV):
         return pd.DataFrame()  # Return empty DataFrame on error
 
 def select_few_shot_examples(
-    article_title, mab_df, corpus_embeddings, model, num_examples=3, min_similarity=0.5, diversity_threshold=0.7
+    article_title, mab_df, corpus_embeddings, model, num_examples=3, diversity_threshold=0.7
 ):
     """
     Selects a diverse set of high-performing few-shot examples as a simple list of strings.
@@ -57,58 +57,48 @@ def select_few_shot_examples(
 
     title_embedding = model.encode(article_title, convert_to_tensor=True)
     cosine_scores = util.pytorch_cos_sim(title_embedding, corpus_embeddings)[0]
-    
+
+    # Find the top k most similar headlines, regardless of score
     top_k = min(num_examples * 10, len(mab_df))
     top_results = torch.topk(cosine_scores, k=top_k)
 
-    similar_indices = [
-        idx.item() for score, idx in zip(top_results[0], top_results[1]) if score >= min_similarity
-    ]
+    # Get the indices of these top candidates
+    similar_indices = [idx.item() for idx in top_results[1]]
 
-    # This list will hold the final headline strings
-    final_headlines = []
+    # Get their performance scores from the dataframe (column 10)
+    candidate_performance = mab_df.iloc[similar_indices][10].tolist()
+    candidates = list(zip(similar_indices, candidate_performance))
 
-    if len(similar_indices) >= num_examples:
-        # Create a list of tuples: (integer_index, performance_score)
-        candidate_performance = mab_df.iloc[similar_indices][11].tolist()
-        candidates = list(zip(similar_indices, candidate_performance))
-        
-        # Sort candidates by performance score (descending)
-        sorted_candidates = sorted(candidates, key=lambda x: x[1], reverse=True)
+    # Sort candidates by performance score (descending)
+    sorted_candidates = sorted(candidates, key=lambda x: x[1], reverse=True)
 
-        selected_indices = [] # This will store the valid integer indices
-        for idx, _ in sorted_candidates:
-            if len(selected_indices) >= num_examples:
-                break
-            
-            if not selected_indices:
-                selected_indices.append(idx)
-                continue
-            
-            # 'idx' is the correct integer index for corpus_embeddings
-            candidate_embedding = corpus_embeddings[idx]
-            
-            # 'selected_indices' also contains correct integer indices
-            embeddings_of_selected = corpus_embeddings[selected_indices]
-            
-            diversity_scores = util.pytorch_cos_sim(candidate_embedding, embeddings_of_selected)[0]
+    # Now, select for diversity from the top-performing similar headlines
+    selected_indices = []
+    for idx, _ in sorted_candidates:
+        if len(selected_indices) >= num_examples:
+            break
 
-            if torch.max(diversity_scores) < diversity_threshold:
-                selected_indices.append(idx)
-        
-        # If we still don't have enough examples, fill with the next best performers
-        if len(selected_indices) < num_examples:
-            remaining_needed = num_examples - len(selected_indices)
-            # Get the indices of the remaining candidates
-            remaining_candidate_indices = [c[0] for c in sorted_candidates if c[0] not in selected_indices]
-            selected_indices.extend(remaining_candidate_indices[:remaining_needed])
+        # Always add the first, best-performing candidate
+        if not selected_indices:
+            selected_indices.append(idx)
+            continue
 
-        # Get the final headlines using the selected integer indices
-        final_headlines = mab_df.iloc[selected_indices][8].tolist()
-    else:
-        # Fallback to global top performers
-        top_performers = mab_df.sort_values(by=11, ascending=False).head(num_examples)
-        final_headlines = top_performers[8].tolist()
+        # Check for diversity against already selected examples
+        candidate_embedding = corpus_embeddings[idx]
+        embeddings_of_selected = corpus_embeddings[selected_indices]
+        diversity_scores = util.pytorch_cos_sim(candidate_embedding, embeddings_of_selected)[0]
+
+        if torch.max(diversity_scores) < diversity_threshold:
+            selected_indices.append(idx)
+
+    # If diversity filter was too strict, fill with the next best performers
+    if len(selected_indices) < num_examples:
+        remaining_needed = num_examples - len(selected_indices)
+        remaining_candidate_indices = [c[0] for c in sorted_candidates if c[0] not in selected_indices]
+        selected_indices.extend(remaining_candidate_indices[:remaining_needed])
+
+    # Get the final headline strings from the dataframe (column 8)
+    final_headlines = mab_df.iloc[selected_indices][8].tolist()
 
     return final_headlines
 
