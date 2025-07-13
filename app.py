@@ -113,12 +113,11 @@ def process_article_url(article, mab_df, corpus_embeddings, model):
     prompt = generation_result.get("prompt")
     raw_response = generation_result.get("response")
     editorial_compliance = generation_result.get("editorial_compliance")
-    system_prompt = generation_result.get("system_prompt")
 
     if not variants:
-        return {"url": url, "title": title, "variants": None, "error": "AI generation failed.", "prompt": prompt, "response": raw_response, "editorial_compliance": editorial_compliance, "system_prompt": system_prompt}
+        return {"url": url, "title": title, "variants": None, "error": "AI generation failed.", "prompt": prompt, "response": raw_response, "editorial_compliance": editorial_compliance}
 
-    return {"url": url, "title": title, "variants": variants, "error": None, "prompt": prompt, "response": raw_response, "editorial_compliance": editorial_compliance, "system_prompt": system_prompt}
+    return {"url": url, "title": title, "variants": variants, "error": None, "prompt": prompt, "response": raw_response, "editorial_compliance": editorial_compliance}
 
 # Streamlit UI
 st.title("Headline Variant Generator")
@@ -249,9 +248,7 @@ if submit_button:
 
                                 # Add a nested expander for the prompt and response
                                 with st.expander("View Prompt & Response"):
-                                    st.markdown("**System Prompt (Editorial Persona):**")
-                                    st.info(result.get('system_prompt', 'System prompt not available.'))
-                                    st.markdown("**User Prompt (Task Specific):**")
+                                    st.markdown("**Prompt sent to AI:**")
                                     st.code(result.get('prompt', 'Prompt not available.'), language='text')
                                     st.markdown("**Raw response from AI:**")
                                     st.json(result.get('response', 'Response not available.'))
