@@ -150,27 +150,38 @@ def scrape_article_description(url):
 def validate_headline_quality(headlines):
     validation_results = []
     for h in headlines:
-        reasons = []
-        # Length check
-        if len(h) > 70:
-            reasons.append(f"Exceeds 70 characters (is {len(h)})")
+        fail_reasons = []
+        warn_reasons = []
 
-        # Sentence case check
+        # Length check: >100 is failure, >70 is warning
+        if len(h) > 100:
+            fail_reasons.append(f"Exceeds 100 characters (is {len(h)})")
+        elif len(h) > 70:
+            warn_reasons.append(f"Exceeds 70 characters (is {len(h)})")
+
+        # Sentence case check (failure condition)
         words = h.split()
-        # Ensure the first word is capitalized and no other word (that isn't a proper noun, which is hard to check) is fully capitalized.
-        if not h[0].isupper():
-            reasons.append("Does not start with a capital letter.")
+        if not h or not h[0].isupper():
+            fail_reasons.append("Does not start with a capital letter.")
         
-        # A simple check for excessive capitalization (e.g., ALL CAPS words)
+        # Excessive capitalization check (failure condition)
         for word in words[1:]:
-            if word.isupper() and len(word) > 1: # Ignore single-letter caps like 'A'
-                reasons.append(f"Contains improperly capitalized word: '{word}'")
-                break # Only report the first instance
+            if word.isupper() and len(word) > 1:
+                fail_reasons.append(f"Contains improperly capitalized word: '{word}'")
+                break
 
-        if not reasons:
-            validation_results.append({"headline": h, "is_valid": True, "reason": ""})
+        # Determine final status
+        if fail_reasons:
+            status = "failure"
+            reason = ", ".join(fail_reasons)
+        elif warn_reasons:
+            status = "warning"
+            reason = ", ".join(warn_reasons)
         else:
-            validation_results.append({"headline": h, "is_valid": False, "reason": ", ".join(reasons)})
+            status = "valid"
+            reason = ""
+
+        validation_results.append({"headline": h, "status": status, "reason": reason})
             
     return validation_results
 

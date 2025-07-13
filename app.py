@@ -251,13 +251,15 @@ if submit_button:
                                 st.markdown("**Generated Variants:**")
                                 for variant_data in result['variants']:
                                     headline = variant_data['headline']
-                                    is_valid = variant_data['is_valid']
-                                    reason = variant_data['reason']
+                                    status = variant_data.get('status', 'failure') # Default to failure if status is missing
+                                    reason = variant_data.get('reason', 'N/A')
 
-                                    if is_valid:
+                                    if status == 'valid':
                                         st.markdown(f"- ✅ `{headline}`")
-                                    else:
-                                        st.markdown(f"- ❌ `{headline}` - **Reason:** {reason}")
+                                    elif status == 'warning':
+                                        st.markdown(f"- ⚠️ `{headline}` - **Warning:** {reason}")
+                                    else: # status == 'failure'
+                                        st.markdown(f"- ❌ `{headline}` - **Failed:** {reason}")
 
                                 # Display editorial compliance information
                                 if 'editorial_compliance' in result and result['editorial_compliance']:
