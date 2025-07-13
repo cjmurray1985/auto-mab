@@ -199,32 +199,7 @@ def generate_headline_variants_with_few_shot(article_metadata, few_shot_examples
 
     system_prompt = """You are an expert headline writer for Yahoo News, skilled at crafting compelling headlines that maximize click-through rates while maintaining accuracy, journalistic integrity, and Yahoo's editorial standards. You follow Yahoo's sentence-case headline style and editorial guidelines."""
 
-    prompt = f"""You are an expert copywriter for Yahoo News. Generate exactly 5 compelling headline variants following Yahoo's editorial standards.
-
-YAHOO EDITORIAL REQUIREMENTS:
-1. **Headline Style**: Use sentence case (capitalize only the first word and proper nouns) - NOT title case
-2. **Length**: Keep under 70 characters when possible for mobile optimization
-3. **Accuracy**: Maintain factual accuracy - no speculation or unverified claims
-4. **Respect**: Treat subjects with respect - no body-shaming, misgendering, or gratuitous violence
-5. **Accessibility**: Use clear, accessible language - avoid jargon and overly complex sentences
-6. **No Clickbait**: Avoid curiosity gaps or sensationalism that the article doesn't deliver on
-7. **Transparency**: Headlines should accurately reflect the article content
-
-CONTENT GUIDELINES:
-- Generate exactly 5 headline variants
-- Each variant should have a different angle (direct, analytical, impact-focused, etc.)
-- **Grounding Rule**: ONLY use information from the 'Article Title' and 'Article Description' provided
-- No external facts, speculation, or unverified details
-- Maintain Yahoo's conversational but authoritative tone
-
-STYLE SPECIFICS:
-- Use "and" not "&" (unless in official names)
-- Spell out numbers one through nine, use numerals for 10+
-- Use straight quotes, not curly quotes
-- For titles: Use single quotes in headlines (vs. double quotes in body text)
-- No unnecessary capitalization (avoid ALL CAPS)
-
-Here are examples of high-performing Yahoo headlines for context:
+    prompt = f"""Here are examples of high-performing Yahoo headlines for context:
 {few_shot_prompt_text}
 
 Article Title: {article_metadata['original_title']}
