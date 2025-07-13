@@ -226,21 +226,21 @@ Response format: Numbered list of 5 headlines only, no additional text.
 
         if variants:
             validated_variants = validate_headline_quality(variants)
-            if len(validated_variants) < 3:
-                variants = variants[:5]
-            else:
-                variants = validated_variants[:5]
+        else:
+            validated_variants = []
+
+        editorial_compliance = {
+            "style_guide_applied": True,
+            "sentence_case_enforced": True,
+            "length_optimized": True,
+            "fact_grounded": True
+        }
 
         return {
-            "variants": variants,
+            "variants": validated_variants,
             "prompt": prompt,
-            "response": response.model_dump_json(indent=2),
-            "editorial_compliance": {
-                "style_guide_applied": True,
-                "sentence_case_enforced": True,
-                "length_optimized": True,
-                "fact_grounded": True
-            }
+            "response": response.to_json(),
+            "editorial_compliance": editorial_compliance
         }
 
     except Exception as e:
