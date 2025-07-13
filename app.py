@@ -114,11 +114,26 @@ def process_article_url(article, mab_df, corpus_embeddings, model):
     raw_response = generation_result.get("response")
     editorial_compliance = generation_result.get("editorial_compliance")
 
-    if not variants:
-        error_message = generation_result.get("error", "AI generation failed.")
-        return {"url": url, "title": title, "variants": None, "error": error_message, "prompt": prompt, "response": raw_response, "editorial_compliance": editorial_compliance}
+    # Prioritize returning a specific error from the backend if it exists
+    if generation_result.get("error"):
+        return {
+            "url": url, 
+            "title": title, 
+            "variants": None, 
+            "error": generation_result.get("error"), 
+            "prompt": prompt, 
+            "response": raw_response
+        }
 
-    return {"url": url, "title": title, "variants": variants, "error": None, "prompt": prompt, "response": raw_response, "editorial_compliance": editorial_compliance}
+    return {
+        "url": url, 
+        "title": title, 
+        "variants": variants, 
+        "error": None, 
+        "prompt": prompt, 
+        "response": raw_response, 
+        "editorial_compliance": editorial_compliance
+    }
 
 # Streamlit UI
 st.title("Headline Variant Generator")
@@ -254,9 +269,8 @@ if submit_button:
                                     st.markdown("**Raw response from AI:**")
                                     st.json(result.get('response', 'Response not available.'))
                         else:
-                            st.error(f"Could not process: {result['title']}")
-                            with st.expander("View Error Details"):
-                                st.error(result.get('error', 'No specific error message available.'))
+                            with st.expander(f"❌ **Error processing:** {result['title']}", expanded=True):
+                                st.error(f"**Reason:** {result.get('error', 'An unknown error occurred.')}")
                                 st.markdown("**Prompt that may have caused the error:**")
                                 st.code(result.get('prompt', 'Prompt not available.'), language='text')
 
