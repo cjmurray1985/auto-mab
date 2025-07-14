@@ -136,7 +136,7 @@ def process_article_url(article, mab_df, corpus_embeddings, model):
     }
 
 # Streamlit UI
-st.title("Headline Variant Generator")
+st.title("Auto-MAB Headline Generator")
 
 # Custom CSS to override button and expander colors
 st.markdown(f"""
