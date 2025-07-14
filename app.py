@@ -14,6 +14,8 @@ from headline_generator_with_real_mab import (
     MAB_DATA_CSV
 )
 
+st.set_page_config(page_title="Auto-MAB POC", page_icon="📰")
+
 @st.cache_resource
 def load_embedding_model():
     """Loads the SentenceTransformer model and caches it."""
