@@ -256,10 +256,8 @@ if submit_button:
 
                                     if status == 'valid':
                                         st.markdown(f"- ✅ `{headline}`")
-                                    elif status == 'warning':
-                                        st.markdown(f"- ⚠️ `{headline}` - **Warning:** {reason}")
-                                    else: # status == 'failure'
-                                        st.markdown(f"- ❌ `{headline}` - **Failed:** {reason}")
+                                    else: # For both 'warning' and 'failure'
+                                        st.markdown(f"- 🚩 `{headline}` - **Flagged:** {reason}")
 
                                 # Display editorial compliance information
                                 if 'editorial_compliance' in result and result['editorial_compliance']:
