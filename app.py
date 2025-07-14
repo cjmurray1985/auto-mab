@@ -107,7 +107,7 @@ def process_article_url(article, mab_df, corpus_embeddings, model):
         "category": "News",  # Assuming default
         "url": url
     }
-    generation_result = generate_headline_variants_with_few_shot(article_metadata, few_shot_examples, examples_are_limited, article_description)
+    generation_result = generate_headline_variants_with_few_shot(article_metadata, few_shot_examples, examples_are_limited, ANTHROPIC_API_KEY, article_description)
 
     variants = generation_result.get("variants")
     prompt = generation_result.get("prompt")
@@ -182,7 +182,7 @@ st.markdown(f"""
 
 st.write("Enter a news sitemap URL to generate headline variants for the articles within.")
 
-max_articles = st.sidebar.number_input("Number of articles to process", min_value=1, max_value=100, value=5, step=1)
+max_articles = st.sidebar.number_input("Number of articles to process", min_value=1, max_value=20, value=5, step=1)
 
 with st.form(key='sitemap_form'):
     sitemap_url = st.text_input("Enter News Sitemap URL", "https://www.yahoo.com/news-sitemap.xml")

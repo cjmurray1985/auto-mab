@@ -8,6 +8,7 @@ import re
 from dotenv import load_dotenv
 from anthropic import Anthropic
 from newspaper import Article
+import streamlit as st
 import traceback
 
 # Load environment variables
@@ -99,7 +100,7 @@ def select_few_shot_examples(article_title, mab_data, embeddings, model, top_n=5
     else:
         return compliant_examples, True  # Strategy B: Limited examples
 
-def create_adaptive_prompt(article_metadata, few_shot_examples, examples_are_limited=False, article_description=""):
+def create_adaptive_prompt(article_metadata, few_shot_examples, examples_are_limited, article_description=""):
     """Adjusts the prompt based on the quality of the available few-shot examples."""
     examples_str = "\n".join([f"- {ex['headline']}" for ex in few_shot_examples])
     if not few_shot_examples:
@@ -150,10 +151,11 @@ Here are some examples of successful, compliant headlines for similar articles. 
     
     return final_prompt
 
-def generate_headline_variants_with_few_shot(article_metadata, few_shot_examples, examples_are_limited, article_description=""):
-    """Generates variants using the new adaptive prompt and robust API calls."""
-    if not ANTHROPIC_API_KEY:
-        return {"error": "ANTHROPIC_API_KEY not found."}
+@st.cache_data
+def generate_headline_variants_with_few_shot(article_metadata, few_shot_examples, examples_are_limited, api_key, article_description=""):
+    """Generates headline variants using a few-shot prompt with adaptive guidance and retry logic."""
+    if not api_key:
+        return {"error": "API key not found."}
 
     prompt = create_adaptive_prompt(article_metadata, few_shot_examples, examples_are_limited, article_description)
     
