@@ -5,12 +5,18 @@ This project is a web-based tool designed to help content editors and marketers 
 ## Core Features
 
 - **Sitemap Integration**: Automatically parses news sitemaps to discover and process articles.
-- **Article Scraping**: Uses the `Newspaper3k` library to scrape the article's title and description, providing rich context for headline generation.
-- **Context-Aware Few-Shot Prompting**: Employs semantic search to find historically high-performing headlines that are contextually similar to the new article. These are used as dynamic few-shot examples for the AI.
-- **AI-Powered Generation**: Leverages the Anthropic Claude 3 Haiku model to generate five diverse headline variants grounded in the article's actual content.
-- **Interactive UI**: Built with Streamlit, the app provides a user-friendly interface to input sitemaps, monitor progress, and review generated headlines.
-- **Data-Driven**: Uses a CSV file of historical headline performance data (`Example data  Sheet1.csv`) to inform its example selection process.
-- **High-Performance Concurrent Processing**: Processes multiple articles in parallel using a `ThreadPoolExecutor` to deliver headline variants quickly, even for large sitemaps.
+- **Article Scraping**: Uses `Newspaper3k` to scrape article titles and descriptions for rich context.
+- **Context-Aware Few-Shot Prompting**: Employs semantic search to find historically high-performing headlines that are contextually similar to the new article, using them as dynamic few-shot examples.
+- **Unified & Transparent Prompting**: Consolidates all editorial guidelines and instructions into a single, transparent prompt that is displayed in the UI for full visibility.
+- **AI-Powered Generation**: Leverages the Anthropic Claude 3 Haiku model to generate five diverse headline variants.
+- **Detailed Validation & Flagging**:
+    - Validates every generated headline against editorial rules (e.g., length, capitalization).
+    - Instead of a simple pass/fail, non-compliant headlines are **flagged (🚩)** with a clear reason.
+    - This system acknowledges that flagged headlines may still be viable for MAB testing.
+- **Robust API Interaction**: Automatically retries API calls up to 3 times to handle transient network or service errors gracefully.
+- **Interactive UI**: Built with Streamlit, the app provides a user-friendly interface to input sitemaps, monitor progress, and review generated headlines with their validation status.
+- **Transparent Error Reporting**: If an unrecoverable error occurs, the UI displays the full technical traceback for effective debugging.
+- **High-Performance Concurrent Processing**: Processes multiple articles in parallel using a `ThreadPoolExecutor` to deliver results quickly.
 
 ## Tech Stack
 
@@ -76,9 +82,9 @@ Your web browser should automatically open with the application running. The fir
 2.  **Parsing**: The app fetches and parses the sitemap, handling nested sitemap indexes, to extract a list of all article URLs.
 3.  **Data Loading & Embedding**: The historical MAB data from `Example data  Sheet1.csv` is loaded into a pandas DataFrame. The `sentence-transformers` model then converts every headline in this dataset into a numerical vector (embedding). This process is cached for efficiency.
 4.  **Concurrent Headline Generation**:
-    - To ensure high performance, the application processes up to 10 articles at a time in parallel. For each article, the following steps occur concurrently:
-    - **Scraping**: The application scrapes the article's title and description using `Newspaper3k`.
-    - **Few-Shot Selection**: It finds the most semantically similar headlines from the historical data using cosine similarity against the scraped title.
-    - **Prompting**: It constructs a detailed prompt for the Anthropic Claude 3 Haiku model, including the scraped title, description, and the best-performing similar headlines as few-shot examples.
-    - **Generation**: The AI generates 5 new headline variants based on the provided context.
-5.  **Display Results**: The generated variants are displayed in the Streamlit UI in an expandable list for easy review. A button is also available to download all results as a single CSV file.
+    - The application processes up to 10 articles at a time in parallel. For each article:
+    - **Scraping**: The article's title and description are scraped using `Newspaper3k`.
+    - **Few-Shot Selection**: The app finds the most semantically similar headlines from the historical data to use as few-shot examples.
+    - **Prompting**: A unified prompt is constructed containing all editorial rules, the article context, and the few-shot examples. This full prompt is visible in the UI.
+    - **Generation & Validation**: The AI generates 5 new headline variants. Each variant is immediately validated against editorial guidelines (e.g., length, capitalization).
+5.  **Display Results**: The generated variants are displayed in the Streamlit UI. Headlines that pass all checks are shown normally, while non-compliant ones are **flagged (🚩)** with a clear explanation on a separate line. This allows editors to quickly assess quality while still considering all variants for MAB testing.
