@@ -254,12 +254,11 @@ if submit_button:
                                     status = variant_data.get('status', 'failure')
                                     reason = variant_data.get('reason', 'N/A')
 
-                                    # Display the headline
-                                    st.markdown(f"- `{headline}`")
-
-                                    # If not valid, display the flag on a new, indented line
-                                    if status != 'valid':
-                                        st.markdown(f"  🚩 <small>**Flagged:** {reason}</small>", unsafe_allow_html=True)
+                                    if status == 'valid':
+                                        st.markdown(f"- `{headline}`")
+                                    else:
+                                        # Use a <br> for a 'soft return' to keep the flag closely tied to the headline
+                                        st.markdown(f"- `{headline}`<br>&nbsp;&nbsp;&nbsp;&nbsp;🚩 <small>**Flagged:** {reason}</small>", unsafe_allow_html=True)
 
                                 # Add a nested expander for the prompt and response
                                 with st.expander("View Prompt & Response"):
