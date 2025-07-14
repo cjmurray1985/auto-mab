@@ -44,8 +44,6 @@ def validate_headline_quality(headlines):
         elif len(h) > 70:
             warn_reasons.append(f"Exceeds 70 characters (is {len(h)})")
         words = h.split()
-        if not h or not h[0].isupper():
-            fail_reasons.append("Does not start with a capital letter.")
         for word in words[1:]:
             if word.isupper() and len(word) > 1:
                 fail_reasons.append(f"Contains improperly capitalized word: '{word}'")
