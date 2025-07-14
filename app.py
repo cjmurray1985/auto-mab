@@ -251,23 +251,15 @@ if submit_button:
                                 st.markdown("**Generated Variants:**")
                                 for variant_data in result['variants']:
                                     headline = variant_data['headline']
-                                    status = variant_data.get('status', 'failure') # Default to failure if status is missing
+                                    status = variant_data.get('status', 'failure')
                                     reason = variant_data.get('reason', 'N/A')
 
-                                    if status == 'valid':
-                                        st.markdown(f"- ✅ `{headline}`")
-                                    else: # For both 'warning' and 'failure'
-                                        st.markdown(f"- 🚩 `{headline}` - **Flagged:** {reason}")
+                                    # Display the headline
+                                    st.markdown(f"- `{headline}`")
 
-                                # Display editorial compliance information
-                                if 'editorial_compliance' in result and result['editorial_compliance']:
-                                    st.markdown("---_**Editorial Compliance**_---")
-                                    compliance = result['editorial_compliance']
-                                    cols = st.columns(4)
-                                    cols[0].success(f"**Style Guide**: {'Applied' if compliance.get('style_guide_applied') else 'N/A'}")
-                                    cols[1].success(f"**Sentence Case**: {'Enforced' if compliance.get('sentence_case_enforced') else 'N/A'}")
-                                    cols[2].success(f"**Length**: {'Optimized' if compliance.get('length_optimized') else 'N/A'}")
-                                    cols[3].success(f"**Fact-Grounded**: {'Yes' if compliance.get('fact_grounded') else 'N/A'}")
+                                    # If not valid, display the flag on a new, indented line
+                                    if status != 'valid':
+                                        st.markdown(f"  🚩 <small>**Flagged:** {reason}</small>", unsafe_allow_html=True)
 
                                 # Add a nested expander for the prompt and response
                                 with st.expander("View Prompt & Response"):
