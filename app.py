@@ -25,7 +25,7 @@ def load_and_embed_data(csv_path):
     mab_df = load_mab_data(csv_path)
     if not mab_df.empty:
         model = load_embedding_model()
-        headlines = mab_df[8].astype(str).tolist()
+        headlines = mab_df['headline'].astype(str).tolist()
         st.info("Creating headline embeddings for semantic search... This is a one-time process.")
         corpus_embeddings = model.encode(headlines, convert_to_tensor=True, show_progress_bar=True)
         return mab_df, corpus_embeddings
@@ -96,7 +96,7 @@ def process_article_url(article, mab_df, corpus_embeddings, model):
         return {"url": url, "title": title, "variants": None, "error": f"Scraping failed: {scrape_error}"}
 
     # Select few-shot examples
-    few_shot_examples = select_few_shot_examples(title, mab_df, corpus_embeddings, model)
+    few_shot_examples, examples_are_limited = select_few_shot_examples(title, mab_df, corpus_embeddings, model)
 
     # Generate variants
     article_metadata = {
@@ -105,9 +105,7 @@ def process_article_url(article, mab_df, corpus_embeddings, model):
         "category": "News",  # Assuming default
         "url": url
     }
-    generation_result = generate_headline_variants_with_few_shot(
-        article_metadata, few_shot_examples, article_description
-    )
+    generation_result = generate_headline_variants_with_few_shot(article_metadata, few_shot_examples, examples_are_limited, article_description)
 
     variants = generation_result.get("variants")
     prompt = generation_result.get("prompt")

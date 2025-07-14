@@ -4,133 +4,63 @@ import json
 import pandas as pd
 from sentence_transformers import SentenceTransformer, util
 import torch
-import random
-from datetime import datetime
+import re
 from dotenv import load_dotenv
 from anthropic import Anthropic
-import requests
-from bs4 import BeautifulSoup
-import re
 from newspaper import Article
+import traceback
 
 # Load environment variables
 load_dotenv()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 # File path for MAB data
-MAB_DATA_CSV = 'Example data  Sheet1.csv'  # Update if your filename is different
+MAB_DATA_CSV = 'Example data  Sheet1.csv'
 
 def load_mab_data(csv_path=MAB_DATA_CSV):
     """Load and process MAB testing data for few-shot examples"""
     try:
-        print(f"Loading MAB data from {csv_path}...")
-        
-        # Load the CSV file, specifying tab separator, no header, and python engine for robustness
         df = pd.read_csv(csv_path, sep='\t', header=None, engine='python', on_bad_lines='skip')
-        
-        # Display columns for verification
-        print(f"CSV columns: {df.columns.tolist()}")
-        
-        # Define columns we need to check for NaN values
-        # Column 8: headline, Column 10: performance
         required_cols = [8, 10]
         df = df.dropna(subset=required_cols)
-        
-        # Convert performance column to numeric, coercing errors
         df[10] = pd.to_numeric(df[10], errors='coerce')
-        df = df.dropna(subset=[10]) # Drop rows where performance could not be converted
-
+        df = df.dropna(subset=[10])
+        # Rename columns for clarity
+        df = df.rename(columns={8: 'headline', 10: 'performance'})
         print(f"Loaded {len(df)} MAB examples after cleaning")
         return df
     except Exception as e:
         print(f"Error loading MAB data: {e}")
-        return pd.DataFrame()  # Return empty DataFrame on error
+        return pd.DataFrame()
 
-def select_few_shot_examples(article_title, mab_df, corpus_embeddings, model, num_examples=3, diversity_threshold=0.7):
-    """Select few-shot examples that follow Yahoo editorial standards"""
-    if corpus_embeddings is None or mab_df.empty:
-        return []
-
-    title_embedding = model.encode(article_title, convert_to_tensor=True)
-    cosine_scores = util.pytorch_cos_sim(title_embedding, corpus_embeddings)[0]
-
-    top_k = min(num_examples * 10, len(mab_df))
-    top_results = torch.topk(cosine_scores, k=top_k)
-
-    similar_indices = [idx.item() for idx in top_results[1]]
-    candidate_performance = mab_df.iloc[similar_indices][10].tolist()
-    candidates = list(zip(similar_indices, candidate_performance))
-
-    # Filter examples for Yahoo style compliance before selection
-    compliant_candidates = []
-    for idx, performance in candidates:
-        headline = mab_df.iloc[idx][8]
-        words = headline.split()
-        if len(words) > 1 and not headline.isupper():  # Avoid ALL CAPS headlines
-            compliant_candidates.append((idx, performance))
-
-    # Use compliant candidates or fall back to original if too few
-    final_candidates = compliant_candidates if len(compliant_candidates) >= num_examples else candidates
-    
-    # Sort candidates by performance score (descending)
-    sorted_candidates = sorted(final_candidates, key=lambda x: x[1], reverse=True)
-
-    selected_indices = []
-    for idx, _ in sorted_candidates:
-        if len(selected_indices) >= num_examples:
-            break
-
-        if not selected_indices:
-            selected_indices.append(idx)
-            continue
-
-        candidate_embedding = corpus_embeddings[idx]
-        embeddings_of_selected = corpus_embeddings[selected_indices]
-        diversity_scores = util.pytorch_cos_sim(candidate_embedding, embeddings_of_selected)[0]
-
-        if torch.max(diversity_scores) < diversity_threshold:
-            selected_indices.append(idx)
-
-    if len(selected_indices) < num_examples:
-        remaining_needed = num_examples - len(selected_indices)
-        remaining_candidate_indices = [c[0] for c in sorted_candidates if c[0] not in selected_indices]
-        selected_indices.extend(remaining_candidate_indices[:remaining_needed])
-
-    final_headlines = mab_df.iloc[selected_indices][8].tolist()
-    return final_headlines
-
-def extract_article_metadata(url):
-    """Extract article metadata using the Newspaper3k library."""
-    try:
-        print(f"Attempting to scrape {url} with Newspaper3k...")
-        article = Article(url)
-        article.download()
-        article.parse()
-
-        title = article.title
-        description = article.meta_description
-
-        if not title:
-            print(f"Newspaper3k failed to find a title for {url}")
-            return None
-
-        category = "News" # Default category
-        path_parts = url.split('/')
-        if len(path_parts) > 3:
-            possible_category = path_parts[3]
-            if possible_category and possible_category not in ['index.html', 'home', '']:
-                category = possible_category.capitalize().replace('-', ' ')
-        
-        print(f"Newspaper3k scrape successful for {url}")
-        return {
-            "original_title": title,
-            "description": description or "No description available",
-            "category": category,
-            "url": url
-        }
-    except Exception as e:
-        print(f"Newspaper3k scraping failed for {url}: {e}")
-        return None
+def validate_headline_quality(headlines):
+    """Validates a list of headlines against editorial standards."""
+    validation_results = []
+    for h in headlines:
+        fail_reasons = []
+        warn_reasons = []
+        if len(h) > 100:
+            fail_reasons.append(f"Exceeds 100 characters (is {len(h)})")
+        elif len(h) > 70:
+            warn_reasons.append(f"Exceeds 70 characters (is {len(h)})")
+        words = h.split()
+        if not h or not h[0].isupper():
+            fail_reasons.append("Does not start with a capital letter.")
+        for word in words[1:]:
+            if word.isupper() and len(word) > 1:
+                fail_reasons.append(f"Contains improperly capitalized word: '{word}'")
+                break
+        if fail_reasons:
+            status = "failure"
+            reason = ", ".join(fail_reasons)
+        elif warn_reasons:
+            status = "warning"
+            reason = ", ".join(warn_reasons)
+        else:
+            status = "valid"
+            reason = ""
+        validation_results.append({"headline": h, "status": status, "reason": reason})
+    return validation_results
 
 def scrape_article_description(url):
     """Scrape the description of an article using Newspaper3k.
@@ -147,62 +77,38 @@ def scrape_article_description(url):
     except Exception as e:
         return None, f"Scraping with Newspaper3k failed: {e}"
 
-def validate_headline_quality(headlines):
-    validation_results = []
-    for h in headlines:
-        fail_reasons = []
-        warn_reasons = []
+def select_few_shot_examples(article_title, mab_data, embeddings, model, top_n=5):
+    """Selects the best few-shot examples using a hybrid semantic and compliance strategy."""
+    query_embedding = model.encode([article_title], convert_to_tensor=True)
+    similarities = util.pytorch_cos_sim(query_embedding, embeddings)[0]
+    top_indices = torch.topk(similarities, k=top_n * 10).indices.tolist() # Increased pool to 50
+    similar_headlines = [mab_data.iloc[idx].to_dict() for idx in top_indices]
+    
+    compliant_examples = []
+    seen_headlines = set()
+    for example in similar_headlines:
+        headline_text = example['headline']
+        if headline_text in seen_headlines:
+            continue  # Skip duplicate
 
-        # Length check: >100 is failure, >70 is warning
-        if len(h) > 100:
-            fail_reasons.append(f"Exceeds 100 characters (is {len(h)})")
-        elif len(h) > 70:
-            warn_reasons.append(f"Exceeds 70 characters (is {len(h)})")
-
-        # Sentence case check (failure condition)
-        words = h.split()
-        if not h or not h[0].isupper():
-            fail_reasons.append("Does not start with a capital letter.")
-        
-        # Excessive capitalization check (failure condition)
-        for word in words[1:]:
-            if word.isupper() and len(word) > 1:
-                fail_reasons.append(f"Contains improperly capitalized word: '{word}'")
-                break
-
-        # Determine final status
-        if fail_reasons:
-            status = "failure"
-            reason = ", ".join(fail_reasons)
-        elif warn_reasons:
-            status = "warning"
-            reason = ", ".join(warn_reasons)
-        else:
-            status = "valid"
-            reason = ""
-
-        validation_results.append({"headline": h, "status": status, "reason": reason})
+        validation_result = validate_headline_quality([headline_text])[0]
+        if validation_result['status'] == 'valid':
+            compliant_examples.append(example)
+            seen_headlines.add(headline_text)
             
-    return validation_results
+    if len(compliant_examples) >= 3:
+        return compliant_examples[:top_n], False  # Strategy A: Good examples
+    else:
+        return compliant_examples, True  # Strategy B: Limited examples
 
-def generate_headline_variants_with_few_shot(article_metadata, few_shot_examples, article_description=""):
-    """
-    Generates headline variants using a few-shot prompt with Anthropic Claude 3 Haiku.
-    Includes the article description for context.
-    Returns a dictionary with variants, prompt, and raw response.
-    """
-    if not ANTHROPIC_API_KEY:
-        print("ANTHROPIC_API_KEY not found. Cannot generate headlines.")
-        return {"variants": [], "prompt": "", "response": "ANTHROPIC_API_KEY not found."}
+def create_adaptive_prompt(article_metadata, few_shot_examples, examples_are_limited=False, article_description=""):
+    """Adjusts the prompt based on the quality of the available few-shot examples."""
+    examples_str = "\n".join([f"- {ex['headline']}" for ex in few_shot_examples])
+    if not few_shot_examples:
+        examples_str = "No compliant examples were found for similar articles."
 
-    few_shot_prompt_text = ""
-    if few_shot_examples:
-        for headline in few_shot_examples:
-            few_shot_prompt_text += f"- {headline}\n"
-
-    prompt = f"""You are an expert headline writer for Yahoo News, skilled at crafting compelling headlines that maximize click-through rates while maintaining accuracy, journalistic integrity, and Yahoo's editorial standards.
-
-YAHOO EDITORIAL REQUIREMENTS:
+    # The full, detailed prompt is now the base
+    base_prompt = f"""YAHOO EDITORIAL REQUIREMENTS:
 1. **Headline Style**: Use sentence case (capitalize only the first word and proper nouns) - NOT title case
 2. **Length**: Keep under 70 characters when possible for mobile optimization
 3. **Accuracy**: Maintain factual accuracy - no speculation or unverified claims
@@ -224,16 +130,35 @@ STYLE SPECIFICS:
 - Use straight quotes, not curly quotes
 - For titles: Use single quotes in headlines (vs. double quotes in body text)
 - No unnecessary capitalization (avoid ALL CAPS)
-
-Here are examples of high-performing Yahoo headlines for context:
-{few_shot_prompt_text}
-
-Article Title: {article_metadata['original_title']}
-Article Description: {article_description}
-
-Response format: Numbered list of 5 headlines only, no additional text.
 """
 
+    # The adaptive guidance is now appended to the full base prompt
+    if examples_are_limited:
+        guidance = f"""\n**Guidance on Using Examples:**
+IMPORTANT: The examples below are the only compliant headlines we could find for similar articles. They may not be perfectly relevant. Your task is to:
+1. EXTRACT GENERAL ENGAGEMENT PRINCIPLES from them (e.g., posing a question, using a strong verb), rather than copying their specific style.
+2. APPLY THOSE PRINCIPLES to the specific content of the article you are working on.
+3. PRIORITIZE THE EDITORIAL STANDARDS above all else. Your generated headlines must be fully compliant.
+
+Think of these as loose inspiration for engagement techniques, not as templates to follow.
+"""
+    else:
+        guidance = f"""\n**High-Performing Headline Examples:**
+Here are some examples of successful, compliant headlines for similar articles. Study their structure and tone to inform your own creations:
+"""
+
+    # Combine all parts for the final prompt
+    final_prompt = base_prompt + guidance + f"""\n**Headline Examples:**\n{examples_str}\n\n**Article to Process:**\n- **Title:** {article_metadata['original_title']}\n- **Description:** {article_description}\n\nNow, generate 5 headline variants that strictly follow all editorial standards."""
+    
+    return final_prompt
+
+def generate_headline_variants_with_few_shot(article_metadata, few_shot_examples, examples_are_limited, article_description=""):
+    """Generates variants using the new adaptive prompt and robust API calls."""
+    if not ANTHROPIC_API_KEY:
+        return {"error": "ANTHROPIC_API_KEY not found."}
+
+    prompt = create_adaptive_prompt(article_metadata, few_shot_examples, examples_are_limited, article_description)
+    
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -241,100 +166,27 @@ Response format: Numbered list of 5 headlines only, no additional text.
             response = client.messages.create(
                 model="claude-3-haiku-20240307",
                 max_tokens=1024,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "user", "content": prompt}]
             )
+            raw_text = response.content[0].text
+            # Improved regex to handle variations in the AI's response format
+            variants = re.findall(r'^\s*\d+\.\s*(.*)', raw_text, re.MULTILINE)
+            if not variants:
+                 variants = raw_text.strip().split('\n')
 
-            variants = []
-            if response.content and response.content[0].text:
-                raw_text = response.content[0].text
-                variants = re.findall(r'^\s*\d+\.\s*(.*)', raw_text, re.MULTILINE)
-
-            # The validation function now returns a list of dicts with validation status
             validated_variants = validate_headline_quality(variants)
-
-            editorial_compliance = {
-                "style_guide_applied": True,
-                "sentence_case_enforced": True,
-                "length_optimized": True,
-                "fact_grounded": True
-            }
-
+            
             return {
                 "variants": validated_variants,
                 "prompt": prompt,
-                "response": response.to_json(),
-                "editorial_compliance": editorial_compliance
+                "response": response.to_json()
             }
-
         except Exception as e:
             print(f"Attempt {attempt + 1} failed: {e}")
             if attempt < max_retries - 1:
-                time.sleep(2)  # Wait for 2 seconds before retrying
+                time.sleep(2)
             else:
                 print("All retry attempts failed.")
                 error_trace = traceback.format_exc()
-                return {"variants": [], "prompt": prompt, "response": str(e), "error": f"API Error after multiple retries. See details below.\n\n{error_trace}"}
-
-
-def main():
-    # Load MAB data for few-shot learning
-    mab_df = load_mab_data()
-    
-    # For POC, use a set of example URLs
-    urls = [
-        "https://news.yahoo.com/putin-says-western-enemies-trying-130646694.html",
-        "https://finance.yahoo.com/news/stock-market-today-dow-drops-211625825.html",
-        "https://sports.yahoo.com/nfl-draft-2025-first-round-analysis-042159052.html"
-    ]
-    
-    results = []
-    
-    for url in urls:
-        print(f"\nProcessing {url}...")
-        
-        # Extract metadata
-        metadata = extract_article_metadata(url)
-        if not metadata:
-            print(f"Skipping {url} due to metadata extraction failure")
-            continue
-        
-        # Select relevant few-shot examples
-        examples = select_few_shot_examples(mab_df, metadata['category'])
-        print(f"Selected {len(examples)} relevant few-shot examples")
-        
-        # Generate headline variants with few-shot learning
-        print("Generating headline variants...")
-        variants = generate_headline_variants_with_few_shot(metadata, examples)
-        print("Generated variants:")
-        for i, variant in enumerate(variants, 1):
-            print(f"  {i}. {variant}")
-        
-        # Prepare for review
-        review_data = prepare_for_review(
-            url, 
-            metadata, 
-            variants
-        )
-        
-        results.append(review_data)
-        
-        print(f"Completed processing for {url}")
-        
-    # Export results to CSV
-    if results:
-        df = pd.DataFrame(results)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"headline_variants_mab_{timestamp}.csv"
-        df.to_csv(output_file, index=False)
-        print(f"\nExported results to {output_file}")
-        
-        # Display the results
-        print("\nGenerated headline variants for editorial review:")
-        print(df.to_string())
-    else:
-        print("No results to export")
-
-if __name__ == "__main__":
-    main()
+                return {"error": f"API Error after multiple retries. See details below.\n\n{error_trace}", "prompt": prompt}
+    return {"error": "Exited retry loop unexpectedly.", "prompt": prompt} # Fallback
