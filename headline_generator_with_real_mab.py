@@ -22,13 +22,20 @@ def load_mab_data(csv_path=MAB_DATA_CSV):
     """Load and process MAB testing data for few-shot examples"""
     try:
         df = pd.read_csv(csv_path, sep='\t', header=None, engine='python', on_bad_lines='skip')
+
+        # Filter by winning variant (last column must be TRUE)
+        last_col_index = df.columns[-1]
+        df[last_col_index] = df[last_col_index].astype(str)
+        df = df[df[last_col_index].str.upper() == 'TRUE']
+
         required_cols = [8, 10]
         df = df.dropna(subset=required_cols)
         df[10] = pd.to_numeric(df[10], errors='coerce')
         df = df.dropna(subset=[10])
+        
         # Rename columns for clarity
         df = df.rename(columns={8: 'headline', 10: 'performance'})
-        print(f"Loaded {len(df)} MAB examples after cleaning")
+        print(f"Loaded {len(df)} winning MAB examples after cleaning and filtering")
         return df
     except Exception as e:
         print(f"Error loading MAB data: {e}")
