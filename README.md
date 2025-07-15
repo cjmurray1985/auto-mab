@@ -6,10 +6,11 @@ This project is a web-based tool designed to help content editors and marketers 
 
 - **Sitemap Integration**: Automatically parses news sitemaps to discover and process articles.
 - **Article Scraping**: Uses `Newspaper3k` to scrape article titles and descriptions for rich context.
-- **Hybrid Few-Shot Example Selection**:
-    - Employs semantic search to find the top 50 most contextually similar headlines from a historical MAB dataset.
-    - Filters these results for strict editorial compliance to identify the best possible examples.
-    - Ensures all selected examples are unique by performing deduplication.
+- **Advanced Few-Shot Example Selection**:
+    - **Filters for Winners**: First, it filters the historical MAB dataset to create a pool of exclusively high-performing, "winning" headlines.
+    - **Semantic Search**: From this pool of winners, it employs semantic search to find the top 50 most contextually similar headlines.
+    - **Editorial Compliance**: It then filters these results for strict editorial compliance to identify the best possible examples.
+    - **Deduplication**: Ensures all selected examples are unique.
 - **Adaptive Prompt Construction**:
     - Dynamically adjusts the AI prompt based on the quality and quantity of available examples.
     - If 3 or more high-quality examples are found, it instructs the AI to study their structure and tone.
@@ -89,7 +90,7 @@ Your web browser should automatically open with the application running. The fir
 4.  **Concurrent Headline Generation**:
     - The application processes multiple articles at a time in parallel. For each article:
     - **Scraping**: The article's title and description are scraped.
-    - **Hybrid Few-Shot Selection**: The app finds the top 50 most semantically similar headlines from the historical data. It then filters this list for editorial compliance and uniqueness to select the best possible examples.
+    - **Advanced Few-Shot Selection**: The process begins by filtering the entire historical dataset to include only "winning" headlines. From this high-quality pool, the app finds the top 50 most semantically similar headlines to the new article. Finally, it filters this list for editorial compliance and uniqueness to select the best possible examples for the AI.
     - **Adaptive Prompting**: A final prompt is constructed containing the precise editorial rules, the article context, and the dynamically selected few-shot examples. The prompt adapts its guidance based on the quality of the examples found.
     - **Generation & Validation**: The AI generates 5 new headline variants. Each is immediately validated, and a status (`valid`, `warning`, `failure`) is assigned.
 5.  **Display Results**: The generated variants are displayed in the Streamlit UI. Non-compliant headlines are flagged (🚩) with a clear explanation, allowing editors to quickly assess quality while still considering all variants for MAB testing.
