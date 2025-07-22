@@ -10,11 +10,12 @@ from headline_generator_with_real_mab import (
     select_few_shot_examples,
     scrape_article_description,
     generate_headline_variants_with_few_shot,
+    generate_headline_variants_zero_shot,  # Import the new zero-shot function
     ANTHROPIC_API_KEY,
     MAB_DATA_CSV
 )
 
-st.set_page_config(page_title="Auto-MAB POC", page_icon="📰")
+st.set_page_config(layout="wide", page_title="Auto-MAB POC", page_icon="📰")
 
 @st.cache_resource
 def load_embedding_model():
@@ -83,7 +84,7 @@ def get_urls_from_sitemap(sitemap_url):
         st.error(f"Error parsing sitemap XML: {e}")
     return urls
 
-def process_article_url(article, mab_df, corpus_embeddings, model):
+def process_article_url(article, mab_df, corpus_embeddings, model, comparison_mode):
     """
     Processes a single article URL to scrape it and generate headline variants.
     This function is designed to be run in a thread pool.
@@ -107,32 +108,36 @@ def process_article_url(article, mab_df, corpus_embeddings, model):
         "category": "News",  # Assuming default
         "url": url
     }
-    generation_result = generate_headline_variants_with_few_shot(article_metadata, few_shot_examples, examples_are_limited, ANTHROPIC_API_KEY, article_description)
 
-    variants = generation_result.get("variants")
-    prompt = generation_result.get("prompt")
-    raw_response = generation_result.get("response")
-    editorial_compliance = generation_result.get("editorial_compliance")
+    # --- Few-Shot Generation ---
+    few_shot_result = generate_headline_variants_with_few_shot(article_metadata, few_shot_examples, examples_are_limited, ANTHROPIC_API_KEY, article_description)
 
-    # Prioritize returning a specific error from the backend if it exists
-    if generation_result.get("error"):
+    # --- Zero-Shot Generation (if in comparison mode) ---
+    zero_shot_result = None
+    if comparison_mode:
+        zero_shot_result = generate_headline_variants_zero_shot(article_metadata, ANTHROPIC_API_KEY, article_description)
+
+    # Prioritize returning an error from the few-shot result if it exists
+    if few_shot_result.get("error"):
         return {
-            "url": url, 
-            "title": title, 
-            "variants": None, 
-            "error": generation_result.get("error"), 
-            "prompt": prompt, 
-            "response": raw_response
+            "url": url,
+            "title": title,
+            "few_shot_variants": None,
+            "error": few_shot_result.get("error"),
+            "few_shot_prompt": few_shot_result.get("prompt"),
+            "response": few_shot_result.get("response")
         }
 
     return {
-        "url": url, 
-        "title": title, 
-        "variants": variants, 
-        "error": None, 
-        "prompt": prompt, 
-        "response": raw_response, 
-        "editorial_compliance": editorial_compliance
+        "url": url,
+        "title": title,
+        "few_shot_variants": few_shot_result.get("variants"),
+        "zero_shot_variants": zero_shot_result.get("variants") if zero_shot_result else None,
+        "error": None,
+        "few_shot_prompt": few_shot_result.get("prompt"),
+        "zero_shot_prompt": zero_shot_result.get("prompt") if zero_shot_result else None,
+        "response": few_shot_result.get("response"),
+        "editorial_compliance": few_shot_result.get("editorial_compliance")
     }
 
 # Streamlit UI
@@ -177,12 +182,37 @@ st.markdown(f"""
     .st-expander > summary:hover {{
         background-color: rgba(126, 31, 255, 0.2) !important;
     }}
+
+    /* Responsive A/B comparison container */
+    .comparison-container {{
+        display: flex;
+        flex-direction: row;
+        gap: 2rem; /* space between columns */
+    }}
+    .comparison-column {{
+        flex: 1;
+    }}
+
+    /* On smaller screens, stack the columns */
+    @media (max-width: 1100px) {{
+        .comparison-container {{
+            flex-direction: column;
+        }}
+    }}
+
+    /* Ensure code blocks wrap text properly */
+    .comparison-column code {{
+        white-space: normal !important;
+        word-break: break-word;
+    }}
 </style>
 """, unsafe_allow_html=True)
 
 st.write("Enter a news sitemap URL to generate headline variants for the articles within.")
 
 max_articles = st.sidebar.number_input("Number of articles to process", min_value=1, max_value=20, value=5, step=1)
+comparison_mode = st.sidebar.checkbox("Enable A/B Comparison (Few-Shot vs. Zero-Shot)", value=True)
+show_flags = st.sidebar.checkbox("Show Validation Flags", value=False)
 
 with st.form(key='sitemap_form'):
     sitemap_url = st.text_input("Enter News Sitemap URL", "https://www.yahoo.com/news-sitemap.xml")
@@ -211,7 +241,7 @@ if submit_button:
                             # Prepare futures
                             model = load_embedding_model()
                             future_to_article = {
-                                executor.submit(process_article_url, article, mab_df, corpus_embeddings, model): article
+                                executor.submit(process_article_url, article, mab_df, corpus_embeddings, model, comparison_mode): article
                                 for article in articles_to_process
                             }
 
@@ -238,36 +268,58 @@ if submit_button:
 
                     # Process and display results
                     for result in sorted(results, key=lambda r: articles_to_process.index(next(a for a in articles_to_process if a['url'] == r['url']))):
-                        if result['variants']:
+                        if result.get('few_shot_variants'):
                             # Store results for CSV download
                             result_row = {"URL": result['url'], "Original Title": result['title']}
-                            for j, variant in enumerate(result['variants']):
-                                result_row[f"Variant {j+1}"] = variant
+                            for j, variant in enumerate(result['few_shot_variants']):
+                                result_row[f"Variant {j+1}"] = variant['headline']
                             all_results_for_csv.append(result_row)
 
                             # Display in an expandable section
                             with st.expander(f"**{result['title']}**"):
                                 st.markdown(f"<small><a href='{result['url']}' target='_blank' style='text-decoration: none;'>🔗 View Article</a></small>", unsafe_allow_html=True)
-                                st.markdown("**Generated Variants:**")
-                                for variant_data in result['variants']:
-                                    headline = variant_data['headline']
-                                    status = variant_data.get('status', 'failure')
-                                    reason = variant_data.get('reason', 'N/A')
+                                
+                                if comparison_mode and result.get('zero_shot_variants'):
+                                    # Generate HTML for the few-shot column
+                                    few_shot_html = "<div class='comparison-column'><b>Few-Shot Variants (with examples):</b><ul>"
+                                    for variant in result['few_shot_variants']:
+                                        few_shot_html += f"<li><code>{variant['headline']}</code></li>"
+                                        if show_flags and variant['status'] != 'valid':
+                                            few_shot_html += f"<small> &nbsp; &nbsp; 🚩 <b>Flagged:</b> {variant['reason']}</small>"
+                                    few_shot_html += "</ul></div>"
 
-                                    # Use columns to ensure consistent formatting for all headlines
-                                    col1, col2 = st.columns([1, 19])
-                                    with col1:
-                                        st.write("•") # Bullet point
-                                    with col2:
-                                        st.markdown(f"`{headline}`")
-                                        if status != 'valid':
-                                            st.markdown(f"<small>🚩 **Flagged:** {reason}</small>", unsafe_allow_html=True)
+                                    # Generate HTML for the zero-shot column
+                                    zero_shot_html = "<div class='comparison-column'><b>Zero-Shot Variants (no examples):</b><ul>"
+                                    for variant in result['zero_shot_variants']:
+                                        zero_shot_html += f"<li><code>{variant['headline']}</code></li>"
+                                        if show_flags and variant['status'] != 'valid':
+                                            zero_shot_html += f"<small> &nbsp; &nbsp; 🚩 <b>Flagged:</b> {variant['reason']}</small>"
+                                    zero_shot_html += "</ul></div>"
+
+                                    # Display the two columns inside the responsive container
+                                    st.markdown(f"<div class='comparison-container'>{few_shot_html}{zero_shot_html}</div>", unsafe_allow_html=True)
+                                else:
+                                    st.markdown("**Generated Variants:**")
+                                    for variant_data in result['few_shot_variants']:
+                                        headline = variant_data['headline']
+                                        status = variant_data.get('status', 'failure')
+                                        reason = variant_data.get('reason', 'N/A')
+                                        st.markdown(f"- `{headline}`")
+                                        if show_flags and status != 'valid':
+                                            st.markdown(f"<small> &nbsp; &nbsp; 🚩 **Flagged:** {reason}</small>", unsafe_allow_html=True)
 
                                 # Add a nested expander for the prompt and response
-                                with st.expander("View Prompt & Response"):
-                                    st.markdown("**Prompt sent to AI:**")
-                                    st.code(result.get('prompt', 'Prompt not available.'), language='text')
-                                    st.markdown("**Raw response from AI:**")
+                                with st.expander("View Prompts & Response"):
+                                    if comparison_mode and result.get('zero_shot_prompt'):
+                                        st.markdown("**Few-Shot Prompt:**")
+                                        st.code(result.get('few_shot_prompt', 'Prompt not available.'), language='text')
+                                        st.markdown("**Zero-Shot Prompt:**")
+                                        st.code(result.get('zero_shot_prompt', 'Prompt not available.'), language='text')
+                                    else:
+                                        st.markdown("**Prompt sent to AI:**")
+                                        st.code(result.get('few_shot_prompt', 'Prompt not available.'), language='text')
+                                    
+                                    st.markdown("**Raw response from AI (Few-Shot):**")
                                     st.json(result.get('response', 'Response not available.'))
                         else:
                             with st.expander(f"❌ **Error processing:** {result['title']}", expanded=True):

@@ -197,3 +197,77 @@ def generate_headline_variants_with_few_shot(article_metadata, few_shot_examples
                 error_trace = traceback.format_exc()
                 return {"error": f"API Error after multiple retries. See details below.\n\n{error_trace}", "prompt": prompt}
     return {"error": "Exited retry loop unexpectedly.", "prompt": prompt} # Fallback
+
+def create_zero_shot_prompt(article_metadata, article_description=""):
+    """Creates a zero-shot prompt without any examples."""
+    
+    # The base prompt with all editorial and content guidelines
+    base_prompt = f"""YAHOO EDITORIAL REQUIREMENTS:
+1. **Headline Style**: Use sentence case (capitalize only the first word and proper nouns) - NOT title case
+2. **Length**: Keep under 70 characters when possible for mobile optimization
+3. **Accuracy**: Maintain factual accuracy - no speculation or unverified claims
+4. **Respect**: Treat subjects with respect - no body-shaming, misgendering, or gratuitous violence
+5. **Accessibility**: Use clear, accessible language - avoid jargon and overly complex sentences
+6. **No Clickbait**: Avoid curiosity gaps or sensationalism that the article doesn't deliver on
+7. **Transparency**: Headlines should accurately reflect the article content
+
+CONTENT GUIDELINES:
+- Generate exactly 5 headline variants
+- Each variant should have a different angle (direct, analytical, impact-focused, etc.)
+- **Grounding Rule**: ONLY use information from the 'Article Title' and 'Article Description' provided
+- No external facts, speculation, or unverified details
+- Maintain Yahoo's conversational but authoritative tone
+
+STYLE SPECIFICS:
+- Use "and" not "&" (unless in official names)
+- Spell out numbers one through nine, use numerals for 10+
+- Use straight quotes, not curly quotes
+- For titles: Use single quotes in headlines (vs. double quotes in body text)
+- No unnecessary capitalization (avoid ALL CAPS)
+"""
+
+    # Combine the base prompt with the article details
+    final_prompt = base_prompt + f"""\n\n**Article to Process:**\n- **Title:** {article_metadata['original_title']}\n- **Description:** {article_description}\n\nNow, generate 5 headline variants that strictly follow all editorial standards."""
+    
+    return final_prompt
+
+@st.cache_data
+def generate_headline_variants_zero_shot(article_metadata, api_key, article_description=""):
+    """Generates headline variants using a zero-shot prompt with retry logic."""
+    if not api_key:
+        return {"error": "API key not found."}
+
+    prompt = create_zero_shot_prompt(article_metadata, article_description)
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            client = Anthropic(api_key=ANTHROPIC_API_KEY)
+            response = client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            raw_text = response.content[0].text
+            # Improved regex to handle variations in the AI's response format
+            variants = re.findall(r'^\s*\d+\.\s*(.*)', raw_text, re.MULTILINE)
+            if not variants:
+                 variants = raw_text.strip().split('\n')
+
+            validated_variants = validate_headline_quality(variants)
+            
+            return {
+                "variants": validated_variants,
+                "prompt": prompt,
+                "response": response.to_json()
+            }
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+            else:
+                print("All retry attempts failed.")
+                error_trace = traceback.format_exc()
+                return {"error": f"API Error after multiple retries. See details below.\n\n{error_trace}", "prompt": prompt}
+    return {"error": "Exited retry loop unexpectedly.", "prompt": prompt} # Fallback
+
