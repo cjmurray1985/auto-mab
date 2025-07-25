@@ -83,7 +83,7 @@ def scrape_article_description(url):
     except Exception as e:
         return None, f"Scraping with Newspaper3k failed: {e}"
 
-def select_few_shot_examples(article_title, mab_data, embeddings, model, top_n=5):
+def select_few_shot_examples(article_title, mab_data, embeddings, model, top_n=5, filter_by_compliance=True):
     """Selects the best few-shot examples using a hybrid semantic and compliance strategy."""
     query_embedding = model.encode([article_title], convert_to_tensor=True)
     similarities = util.pytorch_cos_sim(query_embedding, embeddings)[0]
@@ -92,6 +92,20 @@ def select_few_shot_examples(article_title, mab_data, embeddings, model, top_n=5
     
     compliant_examples = []
     seen_headlines = set()
+    if not filter_by_compliance:
+        # If not filtering, just return the top N unique similar headlines
+        unique_headlines = []
+        seen_headlines = set()
+        for example in similar_headlines:
+            headline_text = example['headline']
+            if headline_text not in seen_headlines:
+                unique_headlines.append(example)
+                seen_headlines.add(headline_text)
+                if len(unique_headlines) == top_n:
+                    break
+        return unique_headlines, False # Assume examples are not limited when not filtering
+
+    # --- Original filtering logic ---
     for example in similar_headlines:
         headline_text = example['headline']
         if headline_text in seen_headlines:
@@ -101,7 +115,7 @@ def select_few_shot_examples(article_title, mab_data, embeddings, model, top_n=5
         if validation_result['status'] == 'valid':
             compliant_examples.append(example)
             seen_headlines.add(headline_text)
-            
+
     if len(compliant_examples) >= 3:
         return compliant_examples[:top_n], False  # Strategy A: Good examples
     else:

@@ -84,7 +84,7 @@ def get_urls_from_sitemap(sitemap_url):
         st.error(f"Error parsing sitemap XML: {e}")
     return urls
 
-def process_article_url(article, mab_df, corpus_embeddings, model, comparison_mode):
+def process_article_url(article, mab_df, corpus_embeddings, model, test_mode):
     """
     Processes a single article URL to scrape it and generate headline variants.
     This function is designed to be run in a thread pool.
@@ -98,46 +98,45 @@ def process_article_url(article, mab_df, corpus_embeddings, model, comparison_mo
     if not article_description:
         return {"url": url, "title": title, "variants": None, "error": f"Scraping failed: {scrape_error}"}
 
-    # Select few-shot examples
-    few_shot_examples, examples_are_limited = select_few_shot_examples(title, mab_df, corpus_embeddings, model)
-
-    # Generate variants
     article_metadata = {
         "original_title": title,
         "description": article_description,
-        "category": "News",  # Assuming default
+        "category": "News",
         "url": url
     }
 
-    # --- Few-Shot Generation ---
-    few_shot_result = generate_headline_variants_with_few_shot(article_metadata, few_shot_examples, examples_are_limited, ANTHROPIC_API_KEY, article_description)
+    # --- Column A Generation ---
+    # Always generate compliant few-shot for Column A or standard mode
+    few_shot_compliant_examples, examples_are_limited = select_few_shot_examples(title, mab_df, corpus_embeddings, model, filter_by_compliance=True)
+    col_a_result = generate_headline_variants_with_few_shot(article_metadata, few_shot_compliant_examples, examples_are_limited, ANTHROPIC_API_KEY, article_description)
+    col_a_title = "Few-Shot (Compliant)"
 
-    # --- Zero-Shot Generation (if in comparison mode) ---
-    zero_shot_result = None
-    if comparison_mode:
-        zero_shot_result = generate_headline_variants_zero_shot(article_metadata, ANTHROPIC_API_KEY, article_description)
+    # --- Column B Generation (for A/B tests) ---
+    col_b_result = None
+    col_b_title = None
+    if test_mode == "A/B Test: Compliant vs. Unfiltered Few-Shot":
+        few_shot_unfiltered_examples, _ = select_few_shot_examples(title, mab_df, corpus_embeddings, model, filter_by_compliance=False)
+        col_b_result = generate_headline_variants_with_few_shot(article_metadata, few_shot_unfiltered_examples, False, ANTHROPIC_API_KEY, article_description)
+        col_b_title = "Few-Shot (Unfiltered)"
+    elif test_mode == "A/B Test: Compliant Few-Shot vs. Zero-Shot":
+        col_b_result = generate_headline_variants_zero_shot(article_metadata, ANTHROPIC_API_KEY, article_description)
+        col_b_title = "Zero-Shot"
 
-    # Prioritize returning an error from the few-shot result if it exists
-    if few_shot_result.get("error"):
-        return {
-            "url": url,
-            "title": title,
-            "few_shot_variants": None,
-            "error": few_shot_result.get("error"),
-            "few_shot_prompt": few_shot_result.get("prompt"),
-            "response": few_shot_result.get("response")
-        }
+    # --- Consolidate Results ---
+    if col_a_result.get("error"):
+        return {"url": url, "title": title, "error": col_a_result.get("error"), "prompt": col_a_result.get("prompt")}
 
     return {
         "url": url,
         "title": title,
-        "few_shot_variants": few_shot_result.get("variants"),
-        "zero_shot_variants": zero_shot_result.get("variants") if zero_shot_result else None,
-        "error": None,
-        "few_shot_prompt": few_shot_result.get("prompt"),
-        "zero_shot_prompt": zero_shot_result.get("prompt") if zero_shot_result else None,
-        "response": few_shot_result.get("response"),
-        "editorial_compliance": few_shot_result.get("editorial_compliance")
+        "col_a_title": col_a_title,
+        "col_a_variants": col_a_result.get("variants"),
+        "col_a_prompt": col_a_result.get("prompt"),
+        "col_b_title": col_b_title,
+        "col_b_variants": col_b_result.get("variants") if col_b_result else None,
+        "col_b_prompt": col_b_result.get("prompt") if col_b_result else None,
+        "response": col_a_result.get("response"), # For simplicity, just show one response
+        "error": None
     }
 
 # Streamlit UI
@@ -211,7 +210,25 @@ st.markdown(f"""
 st.write("Enter a news sitemap URL to generate headline variants for the articles within.")
 
 max_articles = st.sidebar.number_input("Number of articles to process", min_value=1, max_value=20, value=5, step=1)
-comparison_mode = st.sidebar.checkbox("Enable A/B Comparison (Few-Shot vs. Zero-Shot)", value=True)
+
+TEST_MODES = {
+    "Standard": "Standard Generation (Few-Shot Compliant)",
+    "Compliant vs. Unfiltered": "A/B Test: Compliant vs. Unfiltered Few-Shot",
+    "Compliant vs. Zero-Shot": "A/B Test: Compliant Few-Shot vs. Zero-Shot",
+}
+
+test_mode_key = st.sidebar.selectbox(
+    "Select Test Mode",
+    options=TEST_MODES.keys(),
+    index=0,  # Default to Standard
+    help="""
+- **Standard:** Generates one set of headlines using compliant few-shot examples.
+- **Compliant vs. Unfiltered:** Compares headlines from compliant examples vs. all semantically similar examples.
+- **Compliant vs. Zero-Shot:** Compares headlines from compliant examples vs. no examples.
+"""
+)
+test_mode = TEST_MODES[test_mode_key]
+
 show_flags = st.sidebar.checkbox("Show Validation Flags", value=False)
 
 with st.form(key='sitemap_form'):
@@ -241,7 +258,7 @@ if submit_button:
                             # Prepare futures
                             model = load_embedding_model()
                             future_to_article = {
-                                executor.submit(process_article_url, article, mab_df, corpus_embeddings, model, comparison_mode): article
+                                executor.submit(process_article_url, article, mab_df, corpus_embeddings, model, test_mode): article
                                 for article in articles_to_process
                             }
 
@@ -268,58 +285,53 @@ if submit_button:
 
                     # Process and display results
                     for result in sorted(results, key=lambda r: articles_to_process.index(next(a for a in articles_to_process if a['url'] == r['url']))):
-                        if result.get('few_shot_variants'):
-                            # Store results for CSV download
+                        if result.get('col_a_variants'):
+                            # Store results for CSV download (from column A)
                             result_row = {"URL": result['url'], "Original Title": result['title']}
-                            for j, variant in enumerate(result['few_shot_variants']):
+                            for j, variant in enumerate(result['col_a_variants']):
                                 result_row[f"Variant {j+1}"] = variant['headline']
                             all_results_for_csv.append(result_row)
 
                             # Display in an expandable section
                             with st.expander(f"**{result['title']}**"):
                                 st.markdown(f"<small><a href='{result['url']}' target='_blank' style='text-decoration: none;'>🔗 View Article</a></small>", unsafe_allow_html=True)
+
+                                # A/B Test View
+                                if result.get('col_b_variants'):
+                                    # Generate HTML for Column A
+                                    col_a_html = f"<div class='comparison-column'><b>{result['col_a_title']}:</b><ul>"
+                                    for variant in result['col_a_variants']:
+                                        col_a_html += f"<li><code>{variant['headline']}</code></li>"
+                                        if show_flags and variant['status'] != 'valid':
+                                            col_a_html += f"<small> &nbsp; &nbsp; 🚩 <b>Flagged:</b> {variant['reason']}</small>"
+                                    col_a_html += "</ul></div>"
+
+                                    # Generate HTML for Column B
+                                    col_b_html = f"<div class='comparison-column'><b>{result['col_b_title']}:</b><ul>"
+                                    for variant in result['col_b_variants']:
+                                        col_b_html += f"<li><code>{variant['headline']}</code></li>"
+                                        if show_flags and variant['status'] != 'valid':
+                                            col_b_html += f"<small> &nbsp; &nbsp; 🚩 <b>Flagged:</b> {variant['reason']}</small>"
+                                    col_b_html += "</ul></div>"
+
+                                    st.markdown(f"<div class='comparison-container'>{col_a_html}{col_b_html}</div>", unsafe_allow_html=True)
                                 
-                                if comparison_mode and result.get('zero_shot_variants'):
-                                    # Generate HTML for the few-shot column
-                                    few_shot_html = "<div class='comparison-column'><b>Few-Shot Variants (with examples):</b><ul>"
-                                    for variant in result['few_shot_variants']:
-                                        few_shot_html += f"<li><code>{variant['headline']}</code></li>"
-                                        if show_flags and variant['status'] != 'valid':
-                                            few_shot_html += f"<small> &nbsp; &nbsp; 🚩 <b>Flagged:</b> {variant['reason']}</small>"
-                                    few_shot_html += "</ul></div>"
-
-                                    # Generate HTML for the zero-shot column
-                                    zero_shot_html = "<div class='comparison-column'><b>Zero-Shot Variants (no examples):</b><ul>"
-                                    for variant in result['zero_shot_variants']:
-                                        zero_shot_html += f"<li><code>{variant['headline']}</code></li>"
-                                        if show_flags and variant['status'] != 'valid':
-                                            zero_shot_html += f"<small> &nbsp; &nbsp; 🚩 <b>Flagged:</b> {variant['reason']}</small>"
-                                    zero_shot_html += "</ul></div>"
-
-                                    # Display the two columns inside the responsive container
-                                    st.markdown(f"<div class='comparison-container'>{few_shot_html}{zero_shot_html}</div>", unsafe_allow_html=True)
+                                # Standard View
                                 else:
-                                    st.markdown("**Generated Variants:**")
-                                    for variant_data in result['few_shot_variants']:
-                                        headline = variant_data['headline']
-                                        status = variant_data.get('status', 'failure')
-                                        reason = variant_data.get('reason', 'N/A')
-                                        st.markdown(f"- `{headline}`")
-                                        if show_flags and status != 'valid':
-                                            st.markdown(f"<small> &nbsp; &nbsp; 🚩 **Flagged:** {reason}</small>", unsafe_allow_html=True)
+                                    st.markdown(f"**{result['col_a_title']}:**")
+                                    for variant_data in result['col_a_variants']:
+                                        st.markdown(f"- `{variant_data['headline']}`")
+                                        if show_flags and variant_data['status'] != 'valid':
+                                            st.markdown(f"<small> &nbsp; &nbsp; 🚩 **Flagged:** {variant_data['reason']}</small>", unsafe_allow_html=True)
 
-                                # Add a nested expander for the prompt and response
+                                # Expander for prompts
                                 with st.expander("View Prompts & Response"):
-                                    if comparison_mode and result.get('zero_shot_prompt'):
-                                        st.markdown("**Few-Shot Prompt:**")
-                                        st.code(result.get('few_shot_prompt', 'Prompt not available.'), language='text')
-                                        st.markdown("**Zero-Shot Prompt:**")
-                                        st.code(result.get('zero_shot_prompt', 'Prompt not available.'), language='text')
-                                    else:
-                                        st.markdown("**Prompt sent to AI:**")
-                                        st.code(result.get('few_shot_prompt', 'Prompt not available.'), language='text')
-                                    
-                                    st.markdown("**Raw response from AI (Few-Shot):**")
+                                    st.markdown(f"**Prompt for: {result['col_a_title']}**")
+                                    st.code(result.get('col_a_prompt', 'Prompt not available.'), language='text')
+                                    if result.get('col_b_prompt'):
+                                        st.markdown(f"**Prompt for: {result['col_b_title']}**")
+                                        st.code(result.get('col_b_prompt', 'Prompt not available.'), language='text')
+                                    st.markdown("**Raw response from AI:**")
                                     st.json(result.get('response', 'Response not available.'))
                         else:
                             with st.expander(f"❌ **Error processing:** {result['title']}", expanded=True):
